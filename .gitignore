@@ -1,0 +1,5 @@
+.env
+services/postgres/pgdata/
+*.log
+.DS_Store
+node_modules/

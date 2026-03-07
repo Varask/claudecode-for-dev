@@ -1,0 +1,752 @@
+#!/bin/bash
+# ╔══════════════════════════════════════════════════════════════╗
+# ║                        cdev — CLI                            ║
+# ║         Gestionnaire de projets Claude Code Docker           ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# ── Couleurs ───────────────────────────────────────────────────
+RESET="\033[0m"
+BOLD="\033[1m"
+DIM="\033[2m"
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+BLUE="\033[0;34m"
+MAGENTA="\033[0;35m"
+CYAN="\033[0;36m"
+WHITE="\033[0;37m"
+
+# ── Helpers ────────────────────────────────────────────────────
+info()    { echo -e "  ${CYAN}→${RESET}  $*"; }
+success() { echo -e "  ${GREEN}✓${RESET}  $*"; }
+warn()    { echo -e "  ${YELLOW}⚠${RESET}  $*"; }
+error()   { echo -e "  ${RED}✗${RESET}  $*"; }
+title()   { echo -e "\n${BOLD}${WHITE}$*${RESET}"; }
+divider() { echo -e "${DIM}  ──────────────────────────────────────────${RESET}"; }
+ask()     { echo -e -n "  ${MAGENTA}?${RESET}  ${BOLD}$*${RESET} "; }
+
+# ── Vérifier Docker ────────────────────────────────────────────
+check_docker() {
+  if ! command -v docker &>/dev/null; then
+    error "Docker n'est pas installé."
+    info  "Télécharge Docker Desktop : https://www.docker.com/products/docker-desktop"
+    exit 1
+  fi
+  if ! docker info &>/dev/null; then
+    error "Docker n'est pas démarré."
+    info  "Lance Docker Desktop et réessaie."
+    exit 1
+  fi
+}
+
+# ── Bannière ───────────────────────────────────────────────────
+banner() {
+  echo ""
+  echo -e "${BOLD}${CYAN}"
+  echo "   ██████ ██████  ███████ ██    ██ "
+  echo "  ██      ██   ██ ██      ██    ██ "
+  echo "  ██      ██   ██ █████   ██    ██ "
+  echo "  ██      ██   ██ ██       ██  ██  "
+  echo "   ██████ ██████  ███████   ████   "
+  echo -e "${RESET}"
+  echo -e "  ${DIM}Gestionnaire de projets Claude Code Docker${RESET}"
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : help
+# ══════════════════════════════════════════════════════════════
+cmd_help() {
+  banner
+  echo -e "  ${BOLD}Usage :${RESET}  cdev <commande> [options]"
+  echo ""
+  echo -e "  ${BOLD}${CYAN}Démarrage${RESET}"
+  echo -e "  ${GREEN}cdev init${RESET}                    Configurer le projet pour la première fois"
+  echo -e "  ${GREEN}cdev auth${RESET}                    Se connecter à Claude (OAuth ou API key)"
+  echo -e "  ${GREEN}cdev start${RESET}                   Démarrer l'infra (PostgreSQL, Redis)"
+  echo -e "  ${GREEN}cdev stop${RESET}                    Arrêter toute l'infra"
+  echo ""
+  echo -e "  ${BOLD}${CYAN}Projets${RESET}"
+  echo -e "  ${GREEN}cdev new <nom>${RESET}               Créer un nouveau projet"
+  echo -e "  ${GREEN}cdev list${RESET}                    Lister tous les projets"
+  echo -e "  ${GREEN}cdev up <nom>${RESET}                Démarrer un projet"
+  echo -e "  ${GREEN}cdev down <nom>${RESET}              Arrêter un projet"
+  echo -e "  ${GREEN}cdev logs <nom>${RESET}              Voir les logs d'un projet"
+  echo ""
+  echo -e "  ${BOLD}${CYAN}Claude Code${RESET}"
+  echo -e "  ${GREEN}cdev code <nom>${RESET}              Ouvrir Claude Code dans un projet"
+  echo ""
+  echo -e "  ${BOLD}${CYAN}Maintenance${RESET}"
+  echo -e "  ${GREEN}cdev status${RESET}                  État de tous les services"
+  echo -e "  ${GREEN}cdev reset${RESET}                   Tout supprimer (containers + volumes)"
+  echo -e "  ${GREEN}cdev update${RESET}                  Mettre à jour Claude Code"
+  echo ""
+  echo -e "  ${DIM}Exemple complet pour débuter :${RESET}"
+  echo -e "  ${DIM}  cdev init → cdev auth → cdev start → cdev new mon-api → cdev code mon-api${RESET}"
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : init  (wizard de premier démarrage)
+# ══════════════════════════════════════════════════════════════
+cmd_init() {
+  banner
+  title "🚀  Bienvenue ! Configurons ton environnement."
+  divider
+  echo ""
+
+  check_docker
+  success "Docker est disponible"
+  echo ""
+
+  cd "$ROOT_DIR"
+
+  # ── Étape 1 : fichier .env ─────────────────────────────────
+  title "Étape 1/3 — Variables d'environnement"
+  echo ""
+
+  if [ -f ".env" ]; then
+    warn ".env existe déjà."
+    ask "Écraser la configuration existante ? (o/N)"
+    read -r overwrite
+    if [[ ! "$overwrite" =~ ^[oO]$ ]]; then
+      info "Configuration conservée."
+    else
+      rm .env
+    fi
+  fi
+
+  if [ ! -f ".env" ]; then
+    cp .env.example .env
+
+    echo ""
+    info "Quel mode d'authentification veux-tu utiliser ?"
+    echo ""
+    echo -e "    ${BOLD}1)${RESET} OAuth claude.ai  ${DIM}(recommandé — compte Pro ou Team)${RESET}"
+    echo -e "    ${BOLD}2)${RESET} Clé API Anthropic ${DIM}(compte API)${RESET}"
+    echo ""
+    ask "Ton choix (1/2) :"
+    read -r auth_choice
+
+    if [ "$auth_choice" = "2" ]; then
+      echo ""
+      ask "Colle ta clé API Anthropic (sk-ant-...) :"
+      read -r api_key
+      if [ -n "$api_key" ]; then
+        sed -i.bak "s|ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=$api_key|" .env && rm -f .env.bak
+        success "Clé API enregistrée dans .env"
+      else
+        warn "Aucune clé saisie — tu pourras l'ajouter plus tard dans .env"
+      fi
+    else
+      info "OAuth sélectionné — tu t'authentifieras à l'étape suivante."
+    fi
+
+    echo ""
+    info "Configuration de la base de données"
+    ask "Nom d'utilisateur PostgreSQL [user] :"
+    read -r pg_user
+    pg_user=${pg_user:-user}
+
+    ask "Mot de passe PostgreSQL [changeme] :"
+    read -r pg_pass
+    pg_pass=${pg_pass:-changeme}
+
+    ask "Nom de la base de données [mydb] :"
+    read -r pg_db
+    pg_db=${pg_db:-mydb}
+
+    sed -i.bak "s|POSTGRES_USER=.*|POSTGRES_USER=$pg_user|" .env && rm -f .env.bak
+    sed -i.bak "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$pg_pass|" .env && rm -f .env.bak
+    sed -i.bak "s|POSTGRES_DB=.*|POSTGRES_DB=$pg_db|" .env && rm -f .env.bak
+
+    success ".env configuré"
+  fi
+
+  # ── Étape 2 : build des images ─────────────────────────────
+  echo ""
+  title "Étape 2/3 — Construction des images Docker"
+  echo ""
+  info "Construction de l'image claude-auth et claude-code..."
+  docker compose build --quiet 2>&1 | while read -r line; do
+    echo -e "  ${DIM}$line${RESET}"
+  done
+  success "Images construites"
+
+  # ── Étape 3 : démarrage infra ──────────────────────────────
+  echo ""
+  title "Étape 3/3 — Démarrage de l'infra"
+  echo ""
+  docker compose up -d postgres redis
+  success "PostgreSQL et Redis démarrés"
+
+  # ── Résumé final ───────────────────────────────────────────
+  echo ""
+  divider
+  echo ""
+  success "${BOLD}Installation terminée !${RESET}"
+  echo ""
+
+  # Proposer l'auth si OAuth
+  if ! grep -q "sk-ant-" .env 2>/dev/null || grep -q "sk-ant-xxx" .env 2>/dev/null; then
+    info "Prochaine étape — authentifie-toi avec Claude :"
+    echo ""
+    echo -e "    ${BOLD}${GREEN}cdev auth${RESET}"
+  else
+    info "Prochaine étape — crée ton premier projet :"
+    echo ""
+    echo -e "    ${BOLD}${GREEN}cdev new mon-premier-projet${RESET}"
+  fi
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : auth
+# ══════════════════════════════════════════════════════════════
+cmd_auth() {
+  title "🔐  Authentification Claude"
+  divider
+  echo ""
+  check_docker
+  cd "$ROOT_DIR"
+
+  VOLUME_NAME=$(docker volume ls --format "{{.Name}}" | grep "claude-auth" | head -1)
+  AUTHED="no"
+  if [ -n "$VOLUME_NAME" ]; then
+    AUTHED=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine \
+      sh -c "[ -f /data/.credentials.json ] && echo yes || echo no" 2>/dev/null || echo "no")
+  fi
+
+  if [ "$AUTHED" = "yes" ]; then
+    success "Une session OAuth est déjà active."
+    ask "Se ré-authentifier quand même ? (o/N)"
+    read -r redo
+    [[ ! "$redo" =~ ^[oO]$ ]] && info "Session conservée." && echo "" && return
+  fi
+
+  info "Lancement du flow OAuth claude.ai..."
+  info "Un lien va s'afficher — ouvre-le dans ton navigateur."
+  echo ""
+  docker compose run --rm claude-auth
+  echo ""
+  success "Authentification réussie !"
+  echo ""
+  info "Tu peux maintenant ouvrir Claude Code dans un projet :"
+  echo -e "\n    ${BOLD}${GREEN}cdev code <nom-du-projet>${RESET}\n"
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : start
+# ══════════════════════════════════════════════════════════════
+cmd_start() {
+  title "▶  Démarrage de l'infra"
+  divider
+  echo ""
+  check_docker
+  cd "$ROOT_DIR"
+
+  if [ ! -f ".env" ]; then
+    error "Projet non initialisé."
+    info  "Lance d'abord : ${BOLD}cdev init${RESET}"
+    exit 1
+  fi
+
+  docker compose up -d postgres redis
+  echo ""
+  success "Infra démarrée"
+  echo -e "  ${DIM}PostgreSQL → localhost:5432${RESET}"
+  echo -e "  ${DIM}Redis      → localhost:6379${RESET}"
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : stop
+# ══════════════════════════════════════════════════════════════
+cmd_stop() {
+  title "⏹  Arrêt de l'infra"
+  divider
+  echo ""
+  check_docker
+  cd "$ROOT_DIR"
+  docker compose stop
+  echo ""
+  success "Infra arrêtée."
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : new
+# ══════════════════════════════════════════════════════════════
+cmd_new() {
+  local NAME="$1"
+
+  title "📦  Nouveau projet"
+  divider
+  echo ""
+
+  # Wizard si pas de nom passé
+  if [ -z "$NAME" ]; then
+    ask "Nom du projet :"
+    read -r NAME
+    if [ -z "$NAME" ]; then
+      error "Le nom ne peut pas être vide."
+      exit 1
+    fi
+  fi
+
+  # Nettoyer le nom (minuscules, tirets)
+  NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' _' '-' | tr -cd '[:alnum:]-')
+
+  local PROJECTS_DIR="$ROOT_DIR/projects"
+  if [ -d "$PROJECTS_DIR/$NAME" ]; then
+    error "Le projet '$NAME' existe déjà."
+    exit 1
+  fi
+
+  # Port auto
+  local LAST_PORT
+  LAST_PORT=$(find "$PROJECTS_DIR" -name "docker-compose.yml" \
+    | xargs grep -h "300[0-9]:300[0-9]" 2>/dev/null \
+    | grep -o "300[0-9]" | sort -n | tail -1)
+  local PORT=$(( ${LAST_PORT:-3000} + 1 ))
+
+  ask "Port exposé [$PORT] :"
+  read -r custom_port
+  PORT=${custom_port:-$PORT}
+
+  echo ""
+  info "Création du projet ${BOLD}$NAME${RESET} sur le port ${BOLD}$PORT${RESET}..."
+
+  mkdir -p "$PROJECTS_DIR/$NAME/src"
+
+  # Dockerfile
+  cat > "$PROJECTS_DIR/$NAME/Dockerfile" << EOF
+FROM node:22-slim
+
+RUN apt-get update && apt-get install -y \\
+    git curl bash openssh-server vim \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir /var/run/sshd \\
+    && useradd -m -s /bin/bash dev \\
+    && echo "dev:dev" | chpasswd \\
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+RUN npm install -g @anthropic-ai/claude-code
+RUN claude --version || true
+
+WORKDIR /app
+COPY src/ /app/src/
+WORKDIR /app/src
+RUN npm install 2>/dev/null || true
+
+EXPOSE $PORT 22
+CMD ["/bin/bash", "-c", "/usr/sbin/sshd && node index.js"]
+EOF
+
+  # docker-compose.yml
+  cat > "$PROJECTS_DIR/$NAME/docker-compose.yml" << EOF
+services:
+  $NAME:
+    build: .
+    container_name: $NAME
+    environment:
+      - DATABASE_URL=postgresql://\${POSTGRES_USER}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379
+      - PORT=$PORT
+    volumes:
+      - ${NAME}-code:/app/src
+    ports:
+      - "$PORT:$PORT"
+    networks:
+      - claudecode-for-dev_dev-network
+
+volumes:
+  ${NAME}-code:
+
+networks:
+  claudecode-for-dev_dev-network:
+    external: true
+EOF
+
+  # package.json
+  cat > "$PROJECTS_DIR/$NAME/src/package.json" << EOF
+{
+  "name": "$NAME",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  }
+}
+EOF
+
+  # index.js
+  cat > "$PROJECTS_DIR/$NAME/src/index.js" << EOF
+const http = require("http");
+const PORT = process.env.PORT || $PORT;
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ project: "$NAME", status: "ok" }));
+});
+
+server.listen(PORT, () => {
+  console.log(\`$NAME running on port \${PORT}\`);
+});
+EOF
+
+  success "Projet ${BOLD}$NAME${RESET} créé dans ${DIM}projects/$NAME/${RESET}"
+  echo ""
+
+  ask "Démarrer le projet maintenant ? (O/n)"
+  read -r do_start
+  if [[ ! "$do_start" =~ ^[nN]$ ]]; then
+    cmd_up "$NAME"
+    echo ""
+    ask "Ouvrir Claude Code dans ce projet ? (O/n)"
+    read -r do_code
+    if [[ ! "$do_code" =~ ^[nN]$ ]]; then
+      cmd_code "$NAME"
+    fi
+  else
+    echo ""
+    info "Pour démarrer plus tard :"
+    echo -e "\n    ${BOLD}${GREEN}cdev up $NAME${RESET}\n"
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : list
+# ══════════════════════════════════════════════════════════════
+cmd_list() {
+  title "📋  Projets"
+  divider
+  echo ""
+  local PROJECTS_DIR="$ROOT_DIR/projects"
+  local found=0
+
+  for dir in "$PROJECTS_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    found=1
+    local name
+    name=$(basename "$dir")
+    local running
+    running=$(docker ps --format "{{.Names}}" 2>/dev/null | grep -x "$name" || true)
+    if [ -n "$running" ]; then
+      echo -e "    ${GREEN}●${RESET}  ${BOLD}$name${RESET}  ${DIM}[running]${RESET}"
+    else
+      echo -e "    ${DIM}○  $name  [stopped]${RESET}"
+    fi
+  done
+
+  if [ "$found" = "0" ]; then
+    warn "Aucun projet trouvé."
+    info "Crée-en un avec : ${BOLD}cdev new <nom>${RESET}"
+  fi
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : up
+# ══════════════════════════════════════════════════════════════
+cmd_up() {
+  local NAME="$1"
+  local PROJECTS_DIR="$ROOT_DIR/projects"
+
+  if [ -z "$NAME" ]; then
+    cmd_list
+    ask "Quel projet démarrer ?"
+    read -r NAME
+  fi
+
+  if [ ! -d "$PROJECTS_DIR/$NAME" ]; then
+    error "Projet '$NAME' introuvable."
+    cmd_list
+    exit 1
+  fi
+
+  title "▶  Démarrage de $NAME"
+  divider
+  echo ""
+  info "Build et démarrage..."
+
+  cd "$PROJECTS_DIR/$NAME"
+  docker compose up -d --build
+  cd "$ROOT_DIR"
+
+  echo ""
+  success "${BOLD}$NAME${RESET} est démarré."
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : down
+# ══════════════════════════════════════════════════════════════
+cmd_down() {
+  local NAME="$1"
+  local PROJECTS_DIR="$ROOT_DIR/projects"
+
+  if [ -z "$NAME" ]; then
+    cmd_list
+    ask "Quel projet arrêter ?"
+    read -r NAME
+  fi
+
+  if [ ! -d "$PROJECTS_DIR/$NAME" ]; then
+    error "Projet '$NAME' introuvable."
+    exit 1
+  fi
+
+  title "⏹  Arrêt de $NAME"
+  divider
+  echo ""
+  cd "$PROJECTS_DIR/$NAME"
+  docker compose down
+  cd "$ROOT_DIR"
+  echo ""
+  success "$NAME arrêté."
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : logs
+# ══════════════════════════════════════════════════════════════
+cmd_logs() {
+  local NAME="$1"
+
+  if [ -z "$NAME" ]; then
+    cmd_list
+    ask "Logs de quel projet ?"
+    read -r NAME
+  fi
+
+  if ! docker ps --format "{{.Names}}" | grep -q "^${NAME}$"; then
+    error "Container '$NAME' n'est pas en cours d'exécution."
+    info  "Démarre-le avec : ${BOLD}cdev up $NAME${RESET}"
+    exit 1
+  fi
+
+  title "📄  Logs — $NAME"
+  divider
+  echo -e "  ${DIM}Ctrl+C pour quitter${RESET}"
+  echo ""
+  docker logs -f "$NAME"
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : code
+# ══════════════════════════════════════════════════════════════
+cmd_code() {
+  local NAME="$1"
+
+  if [ -z "$NAME" ]; then
+    cmd_list
+    ask "Ouvrir Claude Code dans quel projet ?"
+    read -r NAME
+  fi
+
+  if ! docker ps --format "{{.Names}}" | grep -q "^${NAME}$"; then
+    warn "Le projet '$NAME' n'est pas démarré."
+    ask "Le démarrer maintenant ? (O/n)"
+    read -r do_up
+    if [[ ! "$do_up" =~ ^[nN]$ ]]; then
+      cmd_up "$NAME"
+    else
+      exit 1
+    fi
+  fi
+
+  # Vérifier auth
+  local VOLUME_NAME
+  VOLUME_NAME=$(docker volume ls --format "{{.Name}}" | grep "claude-auth" | head -1)
+  local AUTHED="no"
+  if [ -n "$VOLUME_NAME" ]; then
+    AUTHED=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine \
+      sh -c "[ -f /data/.credentials.json ] && echo yes || echo no" 2>/dev/null || echo "no")
+  fi
+
+  if [ "$AUTHED" = "no" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+    warn "Aucune authentification détectée."
+    ask "Se connecter maintenant ? (O/n)"
+    read -r do_auth
+    if [[ ! "$do_auth" =~ ^[nN]$ ]]; then
+      cmd_auth
+    else
+      exit 1
+    fi
+  fi
+
+  # Injecter token OAuth
+  if [ -n "$VOLUME_NAME" ]; then
+    docker run --rm \
+      -v "${VOLUME_NAME}:/src" \
+      -v "${NAME}_home:/dst" \
+      alpine sh -c "mkdir -p /dst/.claude && cp -r /src/. /dst/.claude/" 2>/dev/null || true
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}${CYAN}Claude Code — $NAME${RESET}"
+  divider
+  echo -e "  ${DIM}Répertoire : /app/src${RESET}"
+  echo -e "  ${DIM}Quitter    : /exit ou Ctrl+C${RESET}"
+  echo ""
+
+  docker exec \
+    --interactive \
+    --tty \
+    --workdir /app/src \
+    --env ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+    --env TERM="${TERM:-xterm-256color}" \
+    --env COLORTERM="${COLORTERM:-truecolor}" \
+    "$NAME" \
+    claude
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : status
+# ══════════════════════════════════════════════════════════════
+cmd_status() {
+  title "📊  État des services"
+  divider
+  echo ""
+
+  check_docker
+
+  # Infra
+  echo -e "  ${BOLD}Infra partagée${RESET}"
+  for svc in postgres redis; do
+    local running
+    running=$(docker ps --format "{{.Names}}" 2>/dev/null | grep -x "$svc" || true)
+    if [ -n "$running" ]; then
+      echo -e "    ${GREEN}●${RESET}  $svc  ${DIM}[running]${RESET}"
+    else
+      echo -e "    ${RED}○${RESET}  $svc  ${DIM}[stopped]${RESET}"
+    fi
+  done
+
+  echo ""
+  echo -e "  ${BOLD}Projets${RESET}"
+  local PROJECTS_DIR="$ROOT_DIR/projects"
+  local found=0
+  for dir in "$PROJECTS_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    found=1
+    local name
+    name=$(basename "$dir")
+    local running
+    running=$(docker ps --format "{{.Names}}" 2>/dev/null | grep -x "$name" || true)
+    if [ -n "$running" ]; then
+      echo -e "    ${GREEN}●${RESET}  $name  ${DIM}[running]${RESET}"
+    else
+      echo -e "    ${DIM}○  $name  [stopped]${RESET}"
+    fi
+  done
+  [ "$found" = "0" ] && echo -e "    ${DIM}Aucun projet créé${RESET}"
+
+  # Auth
+  echo ""
+  echo -e "  ${BOLD}Authentification${RESET}"
+  local VOLUME_NAME
+  VOLUME_NAME=$(docker volume ls --format "{{.Name}}" | grep "claude-auth" | head -1)
+  local AUTHED="no"
+  if [ -n "$VOLUME_NAME" ]; then
+    AUTHED=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine \
+      sh -c "[ -f /data/.credentials.json ] && echo yes || echo no" 2>/dev/null || echo "no")
+  fi
+  if [ "$AUTHED" = "yes" ]; then
+    echo -e "    ${GREEN}●${RESET}  OAuth  ${DIM}[session active]${RESET}"
+  elif [ -n "$ANTHROPIC_API_KEY" ] && [[ "$ANTHROPIC_API_KEY" != *"xxx"* ]]; then
+    echo -e "    ${GREEN}●${RESET}  API Key  ${DIM}[configurée]${RESET}"
+  else
+    echo -e "    ${RED}○${RESET}  ${DIM}Non authentifié — lance : cdev auth${RESET}"
+  fi
+
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : reset
+# ══════════════════════════════════════════════════════════════
+cmd_reset() {
+  title "🗑  Réinitialisation"
+  divider
+  echo ""
+  warn "Cette opération va supprimer TOUS les containers et volumes."
+  warn "Le code dans les volumes sera ${BOLD}perdu définitivement${RESET}."
+  echo ""
+  ask "Confirme en tapant 'supprimer' :"
+  read -r confirm
+
+  if [ "$confirm" != "supprimer" ]; then
+    info "Annulé."
+    echo ""
+    return
+  fi
+
+  info "Arrêt des projets..."
+  local PROJECTS_DIR="$ROOT_DIR/projects"
+  for dir in "$PROJECTS_DIR"/*/; do
+    [ -f "$dir/docker-compose.yml" ] || continue
+    cd "$dir" && docker compose down -v 2>/dev/null || true && cd "$ROOT_DIR"
+  done
+
+  info "Arrêt de l'infra..."
+  cd "$ROOT_DIR" && docker compose down -v 2>/dev/null || true
+
+  echo ""
+  success "Tout a été supprimé."
+  info "Pour repartir : ${BOLD}cdev init${RESET}"
+  echo ""
+}
+
+# ══════════════════════════════════════════════════════════════
+# COMMANDE : update
+# ══════════════════════════════════════════════════════════════
+cmd_update() {
+  title "⬆  Mise à jour de Claude Code"
+  divider
+  echo ""
+  check_docker
+  cd "$ROOT_DIR"
+  info "Rebuild des images avec la dernière version de Claude Code..."
+  docker compose build --no-cache --quiet
+  echo ""
+  success "Images mises à jour."
+  info "Redémarre tes projets pour appliquer la mise à jour :"
+  echo -e "\n    ${BOLD}${GREEN}cdev down <nom> && cdev up <nom>${RESET}\n"
+}
+
+# ══════════════════════════════════════════════════════════════
+# ROUTER
+# ══════════════════════════════════════════════════════════════
+CMD="${1:-help}"
+shift 2>/dev/null || true
+
+case "$CMD" in
+  init)    cmd_init ;;
+  auth)    cmd_auth ;;
+  start)   cmd_start ;;
+  stop)    cmd_stop ;;
+  new)     cmd_new "$1" ;;
+  list)    cmd_list ;;
+  up)      cmd_up "$1" ;;
+  down)    cmd_down "$1" ;;
+  logs)    cmd_logs "$1" ;;
+  code)    cmd_code "$1" ;;
+  status)  cmd_status ;;
+  reset)   cmd_reset ;;
+  update)  cmd_update ;;
+  help|--help|-h) cmd_help ;;
+  *)
+    error "Commande inconnue : '$CMD'"
+    echo ""
+    cmd_help
+    exit 1
+    ;;
+esac

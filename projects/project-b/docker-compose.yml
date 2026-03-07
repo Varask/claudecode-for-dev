@@ -1,0 +1,21 @@
+services:
+  project-b:
+    build: .
+    container_name: project-b
+    environment:
+      - DATABASE_URL=postgresql://user:changeme@postgres:5432/mydb
+      - REDIS_URL=redis://redis:6379
+      - PORT=3001
+    volumes:
+      - project-b-code:/app/src
+    ports:
+      - "3001:3001"
+    networks:
+      - claudecode-for-dev_dev-network
+
+volumes:
+  project-b-code:
+
+networks:
+  claudecode-for-dev_dev-network:
+    external: true

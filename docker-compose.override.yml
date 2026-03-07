@@ -1,0 +1,11 @@
+# Surcharges locales — chargé automatiquement par Docker Compose
+# Personnalise ici sans modifier docker-compose.yml
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

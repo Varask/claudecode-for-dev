@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-postgres"],
+      "env": {
+        "DATABASE_URL": "postgresql://user:changeme@postgres:5432/mydb"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "/app/src"
+      ]
+    }
+  }
+}

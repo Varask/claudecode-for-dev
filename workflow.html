@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cdev — Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --claude: #cc785c;
+    --claude-dim: #7a3d28;
+    --infra: #5c8fcc;
+    --infra-dim: #284a7a;
+    --project: #5ccc8f;
+    --project-dim: #287a4a;
+    --auth: #cc5caa;
+    --auth-dim: #7a2866;
+    --daily: #c8a84b;
+    --daily-dim: #7a5e1a;
+    --text: #e8e8f0;
+    --muted: #5a5a70;
+    --accent: #f0c040;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 60px 32px;
+  }
+
+  header { margin-bottom: 64px; }
+
+  .header-tag {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--claude);
+    border: 1px solid var(--claude-dim);
+    padding: 4px 10px;
+    margin-bottom: 12px;
+    display: inline-block;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(28px, 4vw, 48px);
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--text);
+  }
+  h1 span { color: var(--claude); }
+
+  .subtitle {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── CDEV REFERENCE BAR ── */
+  .cdev-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px 24px;
+    margin-bottom: 56px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+  }
+
+  .cdev-bar-title {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .cdev-cmd {
+    font-size: 11px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .cdev-cmd span {
+    color: var(--muted);
+    margin-left: 6px;
+  }
+
+  /* ── PHASES ── */
+  .phases { display: flex; flex-direction: column; gap: 0; }
+
+  .phase {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 0 32px;
+    position: relative;
+  }
+
+  .phase:not(:last-child) .phase-line {
+    position: absolute;
+    left: 159px;
+    top: 48px;
+    bottom: -1px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .phase-label {
+    padding-top: 16px;
+    text-align: right;
+    position: relative;
+  }
+
+  .phase-label::after {
+    content: '';
+    position: absolute;
+    right: -8px;
+    top: 24px;
+    width: 15px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .phase-num { font-size: 10px; color: var(--muted); letter-spacing: 0.15em; display: block; margin-bottom: 4px; }
+  .phase-name { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; }
+
+  .phase-content {
+    padding: 16px 0 48px 0;
+    border-left: 1px solid var(--border);
+    padding-left: 32px;
+    position: relative;
+  }
+
+  .phase-content::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 24px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 2px solid var(--bg);
+  }
+
+  .phase--init .phase-name  { color: var(--auth); }
+  .phase--init .phase-content::before { background: var(--auth); }
+  .phase--infra .phase-name { color: var(--infra); }
+  .phase--infra .phase-content::before { background: var(--infra); }
+  .phase--project .phase-name { color: var(--project); }
+  .phase--project .phase-content::before { background: var(--project); }
+  .phase--work .phase-name  { color: var(--claude); }
+  .phase--work .phase-content::before { background: var(--claude); }
+  .phase--daily .phase-name { color: var(--daily); }
+  .phase--daily .phase-content::before { background: var(--daily); }
+
+  /* ── STEPS ── */
+  .steps { display: flex; flex-direction: column; gap: 12px; }
+
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: default;
+    opacity: 0;
+    transform: translateX(-10px);
+    animation: slideIn 0.4s forwards;
+  }
+
+  .step:hover { transform: translateX(4px); }
+  .phase--init .step:hover    { border-color: var(--auth-dim); }
+  .phase--infra .step:hover   { border-color: var(--infra-dim); }
+  .phase--project .step:hover { border-color: var(--project-dim); }
+  .phase--work .step:hover    { border-color: var(--claude-dim); }
+  .phase--daily .step:hover   { border-color: var(--daily-dim); }
+
+  .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .step-icon { font-size: 16px; width: 28px; flex-shrink: 0; text-align: center; }
+  .step-title { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); flex: 1; }
+
+  .step-badge {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border: 1px solid;
+    opacity: 0.7;
+  }
+
+  .phase--init .step-badge    { color: var(--auth);    border-color: var(--auth-dim); }
+  .phase--infra .step-badge   { color: var(--infra);   border-color: var(--infra-dim); }
+  .phase--project .step-badge { color: var(--project); border-color: var(--project-dim); }
+  .phase--work .step-badge    { color: var(--claude);  border-color: var(--claude-dim); }
+  .phase--daily .step-badge   { color: var(--daily);   border-color: var(--daily-dim); }
+
+  .step-cmd {
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(240,192,64,0.06);
+    border: 1px solid rgba(240,192,64,0.15);
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    letter-spacing: 0.03em;
+  }
+  .step-cmd::before { content: '$ '; color: var(--muted); }
+
+  .step-desc { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .step-desc code { color: var(--text); background: rgba(255,255,255,0.05); padding: 1px 5px; }
+
+  /* ── NET DIAGRAM ── */
+  .net-diagram {
+    margin-top: 48px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 32px;
+  }
+
+  .net-title { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 24px; }
+
+  .net-grid {
+    display: grid;
+    grid-template-columns: 1fr 40px 1fr 1fr;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .net-box { border: 1px solid; padding: 14px 16px; text-align: center; }
+  .net-box.claude-box  { border-color: var(--claude-dim); }
+  .net-box.project-box { border-color: var(--project-dim); }
+  .net-box.infra-box   { border-color: var(--infra-dim); }
+
+  .net-box-label { font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .net-box-name  { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; }
+  .net-box-sub   { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  .claude-box  .net-box-name { color: var(--claude); }
+  .project-box .net-box-name { color: var(--project); }
+  .infra-box   .net-box-name { color: var(--infra); }
+
+  .net-arrow { text-align: center; color: var(--muted); font-size: 20px; }
+  .projects-col, .infra-col { display: flex; flex-direction: column; gap: 10px; }
+
+  /* ── LEGEND ── */
+  .legend {
+    margin-top: 64px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .legend-item { background: var(--surface); padding: 16px 20px; display: flex; align-items: center; gap: 10px; }
+  .legend-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .legend-text strong { display: block; font-size: 11px; color: var(--text); margin-bottom: 2px; }
+  .legend-text span   { font-size: 10px; color: var(--muted); }
+
+  /* ── ANIMATIONS ── */
+  @keyframes slideIn { to { opacity: 1; transform: translateX(0); } }
+
+  .phase:nth-child(1) .step:nth-child(1) { animation-delay: 0.05s; }
+  .phase:nth-child(1) .step:nth-child(2) { animation-delay: 0.1s; }
+  .phase:nth-child(2) .step:nth-child(1) { animation-delay: 0.15s; }
+  .phase:nth-child(2) .step:nth-child(2) { animation-delay: 0.2s; }
+  .phase:nth-child(3) .step:nth-child(1) { animation-delay: 0.25s; }
+  .phase:nth-child(3) .step:nth-child(2) { animation-delay: 0.3s; }
+  .phase:nth-child(4) .step:nth-child(1) { animation-delay: 0.35s; }
+  .phase:nth-child(4) .step:nth-child(2) { animation-delay: 0.4s; }
+  .phase:nth-child(4) .step:nth-child(3) { animation-delay: 0.45s; }
+  .phase:nth-child(5) .step:nth-child(1) { animation-delay: 0.5s; }
+  .phase:nth-child(5) .step:nth-child(2) { animation-delay: 0.55s; }
+  .phase:nth-child(5) .step:nth-child(3) { animation-delay: 0.6s; }
+
+  @media (max-width: 640px) {
+    .phase { grid-template-columns: 1fr; }
+    .phase-label { text-align: left; padding-top: 0; }
+    .phase-label::after, .phase-line { display: none; }
+    .phase-content { border-left: none; padding-left: 0; }
+    .phase-content::before { display: none; }
+    .legend { grid-template-columns: 1fr 1fr; }
+    .net-grid { grid-template-columns: 1fr; }
+    .net-arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <header>
+    <div class="header-tag">claudecode-for-dev</div>
+    <h1>Workflow <span>cdev</span></h1>
+    <p class="subtitle">Une seule commande pour tout gérer — de l'init à la session Claude Code interactive</p>
+  </header>
+
+  <!-- Reference bar -->
+  <div class="cdev-bar">
+    <div class="cdev-bar-title">// Référence rapide cdev</div>
+    <div class="cdev-cmd">cdev init<span>wizard de démarrage</span></div>
+    <div class="cdev-cmd">cdev auth<span>connexion OAuth / API</span></div>
+    <div class="cdev-cmd">cdev start<span>démarrer l'infra</span></div>
+    <div class="cdev-cmd">cdev new &lt;nom&gt;<span>créer un projet</span></div>
+    <div class="cdev-cmd">cdev up &lt;nom&gt;<span>démarrer un projet</span></div>
+    <div class="cdev-cmd">cdev code &lt;nom&gt;<span>ouvrir Claude Code</span></div>
+    <div class="cdev-cmd">cdev status<span>état des services</span></div>
+    <div class="cdev-cmd">cdev list<span>lister les projets</span></div>
+    <div class="cdev-cmd">cdev logs &lt;nom&gt;<span>logs d'un projet</span></div>
+    <div class="cdev-cmd">cdev down &lt;nom&gt;<span>arrêter un projet</span></div>
+    <div class="cdev-cmd">cdev stop<span>arrêter l'infra</span></div>
+    <div class="cdev-cmd">cdev reset<span>tout supprimer</span></div>
+    <div class="cdev-cmd">cdev update<span>mettre à jour</span></div>
+  </div>
+
+  <div class="phases">
+
+    <!-- PHASE 1 : INIT -->
+    <div class="phase phase--init">
+      <div class="phase-line"></div>
+      <div class="phase-label">
+        <span class="phase-num">01</span>
+        <span class="phase-name">Init</span>
+      </div>
+      <div class="phase-content">
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🧙</span>
+              <span class="step-title">Wizard de configuration</span>
+              <span class="step-badge">Une fois</span>
+            </div>
+            <div class="step-cmd">cdev init</div>
+            <div class="step-desc">Guide interactif pas-à-pas : choix du mode d'auth (OAuth ou API key), saisie des identifiants PostgreSQL, build des images Docker, démarrage automatique de l'infra. Aucune connaissance Docker requise.</div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🔐</span>
+              <span class="step-title">Authentification Claude</span>
+              <span class="step-badge">Une fois</span>
+            </div>
+            <div class="step-cmd">cdev auth</div>
+            <div class="step-desc">Détecte si un token existe déjà. Lance le flow OAuth claude.ai (lien à ouvrir dans le navigateur) ou utilise la clé API depuis <code>.env</code>. Token persisté dans le volume Docker <code>claude-auth</code>, partagé entre tous les projets.</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE 2 : INFRA -->
+    <div class="phase phase--infra">
+      <div class="phase-line"></div>
+      <div class="phase-label">
+        <span class="phase-num">02</span>
+        <span class="phase-name">Infra</span>
+      </div>
+      <div class="phase-content">
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🗄️</span>
+              <span class="step-title">Démarrer l'infra partagée</span>
+              <span class="step-badge">À chaque session</span>
+            </div>
+            <div class="step-cmd">cdev start</div>
+            <div class="step-desc">Lance PostgreSQL et Redis sur <code>dev-network</code>. Vérifie que <code>.env</code> existe, sinon propose de lancer <code>cdev init</code>. Tous les projets partagent cette infra via leurs noms DNS internes.</div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">📊</span>
+              <span class="step-title">Vérifier l'état global</span>
+              <span class="step-badge">Optionnel</span>
+            </div>
+            <div class="step-cmd">cdev status</div>
+            <div class="step-desc">Affiche en un coup d'œil : état de l'infra (postgres, redis), statut de chaque projet (running / stopped), et statut de l'authentification Claude.</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE 3 : PROJECT -->
+    <div class="phase phase--project">
+      <div class="phase-line"></div>
+      <div class="phase-label">
+        <span class="phase-num">03</span>
+        <span class="phase-name">Projet</span>
+      </div>
+      <div class="phase-content">
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">📦</span>
+              <span class="step-title">Créer un projet</span>
+              <span class="step-badge">Si besoin</span>
+            </div>
+            <div class="step-cmd">cdev new mon-api</div>
+            <div class="step-desc">Wizard interactif : saisie du nom, port auto-incrémenté (modifiable), génération du Dockerfile + docker-compose.yml + code source. Propose de démarrer et d'ouvrir Claude Code immédiatement.</div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🚀</span>
+              <span class="step-title">Démarrer un projet</span>
+              <span class="step-badge">À chaque session</span>
+            </div>
+            <div class="step-cmd">cdev up mon-api</div>
+            <div class="step-desc">Build et lance le container projet. Le code source vit dans un volume dédié <code>mon-api-code:/app/src</code>. Si aucun nom donné, affiche la liste interactive des projets disponibles.</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE 4 : CLAUDE CODE -->
+    <div class="phase phase--work">
+      <div class="phase-line"></div>
+      <div class="phase-label">
+        <span class="phase-num">04</span>
+        <span class="phase-name">Claude Code</span>
+      </div>
+      <div class="phase-content">
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🤖</span>
+              <span class="step-title">Ouvrir la CLI interactive</span>
+              <span class="step-badge">Usage quotidien</span>
+            </div>
+            <div class="step-cmd">cdev code mon-api</div>
+            <div class="step-desc">Vérifie que le projet tourne (propose de le démarrer sinon), vérifie l'auth (propose <code>cdev auth</code> sinon), puis exécute <code>docker exec --interactive --tty</code> directement sur le binaire <code>claude</code> — TTY complet préservé.</div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">💬</span>
+              <span class="step-title">Travailler dans Claude Code</span>
+              <span class="step-badge">Interactif</span>
+            </div>
+            <div class="step-desc">Toutes les fonctionnalités depuis <code>/app/src</code> : slash commands (<code>/help</code>, <code>/clear</code>, <code>/model</code>), lecture et édition de fichiers, accès PostgreSQL + Redis via les variables d'env, git intégré, sessions multi-turn continues.</div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🔄</span>
+              <span class="step-title">Changer de projet</span>
+              <span class="step-badge">Multi-projet</span>
+            </div>
+            <div class="step-cmd">cdev code autre-projet</div>
+            <div class="step-desc">Chaque projet a son propre container et volume. Plusieurs sessions Claude Code peuvent tourner en parallèle dans des terminaux différents, toutes connectées à la même infra PostgreSQL / Redis.</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- PHASE 5 : MAINTENANCE -->
+    <div class="phase phase--daily">
+      <div class="phase-label">
+        <span class="phase-num">05</span>
+        <span class="phase-name">Maintenance</span>
+      </div>
+      <div class="phase-content">
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">⬆️</span>
+              <span class="step-title">Mettre à jour Claude Code</span>
+              <span class="step-badge">Occasionnel</span>
+            </div>
+            <div class="step-cmd">cdev update</div>
+            <div class="step-desc">Rebuild les images Docker avec <code>--no-cache</code> pour récupérer la dernière version de <code>@anthropic-ai/claude-code</code>. Redémarre ensuite les projets avec <code>cdev down</code> + <code>cdev up</code>.</div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">📋</span>
+              <span class="step-title">Gérer les projets</span>
+              <span class="step-badge">Quotidien</span>
+            </div>
+            <div class="step-desc">
+              <code>cdev list</code> — voir tous les projets et leur statut&nbsp;&nbsp;
+              <code>cdev logs &lt;nom&gt;</code> — suivre les logs en temps réel&nbsp;&nbsp;
+              <code>cdev down &lt;nom&gt;</code> — arrêter proprement un projet&nbsp;&nbsp;
+              <code>cdev stop</code> — arrêter toute l'infra
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-header">
+              <span class="step-icon">🗑️</span>
+              <span class="step-title">Réinitialiser tout</span>
+              <span class="step-badge">Avec confirmation</span>
+            </div>
+            <div class="step-cmd">cdev reset</div>
+            <div class="step-desc">Demande de taper <code>supprimer</code> pour confirmer. Arrête tous les containers et supprime tous les volumes (données PostgreSQL, tokens OAuth, code dans les volumes). Irréversible.</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Docker Network Diagram -->
+  <div class="net-diagram">
+    <div class="net-title">// Réseau Docker interne — dev-network</div>
+    <div class="net-grid">
+
+      <div class="net-box claude-box">
+        <div class="net-box-label">cdev code</div>
+        <div class="net-box-name">claude-code</div>
+        <div class="net-box-sub">docker exec → CLI</div>
+      </div>
+
+      <div class="net-arrow">→</div>
+
+      <div class="projects-col">
+        <div class="net-box project-box">
+          <div class="net-box-label">:3001</div>
+          <div class="net-box-name">project-a</div>
+          <div class="net-box-sub">/app/src</div>
+        </div>
+        <div class="net-box project-box">
+          <div class="net-box-label">:3002</div>
+          <div class="net-box-name">project-b</div>
+          <div class="net-box-sub">/app/src</div>
+        </div>
+      </div>
+
+      <div class="infra-col">
+        <div class="net-box infra-box">
+          <div class="net-box-label">:5432</div>
+          <div class="net-box-name">postgres</div>
+          <div class="net-box-sub">partagé · cdev start</div>
+        </div>
+        <div class="net-box infra-box">
+          <div class="net-box-label">:6379</div>
+          <div class="net-box-name">redis</div>
+          <div class="net-box-sub">partagé · cdev start</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--auth)"></div>
+      <div class="legend-text"><strong>Init</strong><span>Une seule fois</span></div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--infra)"></div>
+      <div class="legend-text"><strong>Infra</strong><span>Par session</span></div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--project)"></div>
+      <div class="legend-text"><strong>Projet</strong><span>Par projet</span></div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--claude)"></div>
+      <div class="legend-text"><strong>Claude Code</strong><span>Usage quotidien</span></div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--daily)"></div>
+      <div class="legend-text"><strong>Maintenance</strong><span>Occasionnel</span></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

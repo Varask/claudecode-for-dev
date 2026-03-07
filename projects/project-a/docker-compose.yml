@@ -1,0 +1,21 @@
+services:
+  project-a:
+    build: .
+    container_name: project-a
+    environment:
+      - DATABASE_URL=postgresql://user:changeme@postgres:5432/mydb
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+    volumes:
+      - project-a-code:/app/src     # Code persiste dans un volume dédié
+    ports:
+      - "3000:3000"
+    networks:
+      - claudecode-for-dev_dev-network
+
+volumes:
+  project-a-code:
+
+networks:
+  claudecode-for-dev_dev-network:
+    external: true
