@@ -5,8 +5,15 @@
 # ╚══════════════════════════════════════════════════════════════╝
 
 set -e
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Résoudre le vrai chemin même via un lien symbolique
+_SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$_SOURCE" ]; do
+  _DIR="$(cd "$(dirname "$_SOURCE")" && pwd)"
+  _SOURCE="$(readlink "$_SOURCE")"
+  [[ "$_SOURCE" != /* ]] && _SOURCE="$_DIR/$_SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_SOURCE")" && pwd)"
+ROOT_DIR="$SCRIPT_DIR"
 
 # ── Couleurs ───────────────────────────────────────────────────
 RESET="\033[0m"
