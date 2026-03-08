@@ -6,7 +6,6 @@ Environnement Docker où chaque projet vit dans son propre container, et Claude 
 
 ```bash
 # Rendre cdev accessible globalement (optionnel mais recommandé)
-chmod +x cdev
 sudo ln -s "$(pwd)/cdev" /usr/local/bin/cdev
 
 # Initialiser le projet (wizard guidé)

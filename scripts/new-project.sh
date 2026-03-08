@@ -1,36 +1,40 @@
 #!/bin/bash
 set -e
 
-PROJECT=${1:-""}
+NAME=${1:-""}
 PORT=${2:-""}
+GIT_REPO=${3:-""}
+GIT_BRANCH=${4:-"main"}
 
-if [ -z "$PROJECT" ]; then
-  echo "Usage: $0 <nom-du-projet> [port]"
-  echo "Exemple: $0 project-c 3002"
+if [ -z "$NAME" ]; then
+  echo "Usage: $0 <nom> [port] [git-repo-url] [branche]"
+  echo "Exemple: $0 mon-api 3002 https://github.com/moi/mon-api.git main"
   exit 1
 fi
 
 PROJECTS_DIR="$(dirname "$0")/../projects"
 
-if [ -d "$PROJECTS_DIR/$PROJECT" ]; then
-  echo "❌ Le projet '$PROJECT' existe déjà."
+if [ -d "$PROJECTS_DIR/$NAME" ]; then
+  echo "❌ Le projet '$NAME' existe déjà."
   exit 1
 fi
 
-# Trouver un port libre si non spécifié
+# Port auto si non fourni
 if [ -z "$PORT" ]; then
   LAST_PORT=$(find "$PROJECTS_DIR" -name "docker-compose.yml" \
-    | xargs grep -h "3[0-9][0-9][0-9]:3" 2>/dev/null \
+    | xargs grep -h "3[0-9][0-9][0-9]:3[0-9][0-9][0-9]" 2>/dev/null \
     | grep -o "3[0-9][0-9][0-9]" | sort -n | tail -1)
   PORT=$(( ${LAST_PORT:-3000} + 1 ))
 fi
 
-echo "📦 Création du projet '$PROJECT' sur le port $PORT..."
+UPPER_NAME=$(echo "$NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
 
-mkdir -p "$PROJECTS_DIR/$PROJECT/src"
+echo "📦 Création du projet '$NAME' sur le port $PORT..."
+
+mkdir -p "$PROJECTS_DIR/$NAME"
 
 # Dockerfile
-cat > "$PROJECTS_DIR/$PROJECT/Dockerfile" << EOF
+cat > "$PROJECTS_DIR/$NAME/Dockerfile" << DFEOF
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y \\
@@ -43,77 +47,88 @@ RUN mkdir /var/run/sshd \\
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 RUN npm install -g @anthropic-ai/claude-code
-
 RUN claude --version || true
 
+RUN mkdir -p /app/src
 WORKDIR /app
-COPY src/ /app/src/
 
-WORKDIR /app/src
-RUN npm install 2>/dev/null || true
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE $PORT 22
-CMD ["/bin/bash", "-c", "/usr/sbin/sshd && node index.js"]
-EOF
+ENTRYPOINT ["/entrypoint.sh"]
+DFEOF
+
+# entrypoint.sh
+cat > "$PROJECTS_DIR/$NAME/entrypoint.sh" << 'EOFE'
+#!/bin/bash
+set -e
+
+REPO_URL="${GIT_REPO:-}"
+BRANCH="${GIT_BRANCH:-main}"
+APP_DIR="/app/src"
+
+if [ -n "$REPO_URL" ]; then
+  if [ ! -d "$APP_DIR/.git" ]; then
+    echo "📦 Clonage de $REPO_URL (branche: $BRANCH)..."
+    git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
+    echo "✅ Repo cloné."
+  else
+    echo "🔄 Repo existant — git pull..."
+    cd "$APP_DIR" && git pull origin "$BRANCH"
+  fi
+  if [ -f "$APP_DIR/package.json" ]; then
+    echo "📦 npm install..."
+    cd "$APP_DIR" && npm install --silent
+  fi
+else
+  echo "⚠️  GIT_REPO non défini — container prêt sans code."
+  mkdir -p "$APP_DIR"
+fi
+
+/usr/sbin/sshd
+
+if [ -f "$APP_DIR/package.json" ]; then
+  echo "🚀 Démarrage..."
+  cd "$APP_DIR"
+  npm start 2>/dev/null || node index.js 2>/dev/null || tail -f /dev/null
+else
+  echo "✅ Container prêt — utilise cdev code pour travailler."
+  tail -f /dev/null
+fi
+EOFE
+chmod +x "$PROJECTS_DIR/$NAME/entrypoint.sh"
 
 # docker-compose.yml
-cat > "$PROJECTS_DIR/$PROJECT/docker-compose.yml" << EOF
+cat > "$PROJECTS_DIR/$NAME/docker-compose.yml" << DCEOF
 services:
-  $PROJECT:
+  $NAME:
     build: .
-    container_name: $PROJECT
+    container_name: $NAME
     environment:
-      - DATABASE_URL=postgresql://user:changeme@postgres:5432/mydb
+      - GIT_REPO=\${${UPPER_NAME}_REPO:-$GIT_REPO}
+      - GIT_BRANCH=\${${UPPER_NAME}_BRANCH:-$GIT_BRANCH}
+      - DATABASE_URL=postgresql://\${POSTGRES_USER}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379
       - PORT=$PORT
     volumes:
-      - ${PROJECT}-code:/app/src
+      - ${NAME}-code:/app/src
+      - \${SSH_KEY_PATH:-~/.ssh}:/root/.ssh:ro
     ports:
       - "$PORT:$PORT"
     networks:
       - claudecode-for-dev_dev-network
 
 volumes:
-  ${PROJECT}-code:
+  ${NAME}-code:
 
 networks:
   claudecode-for-dev_dev-network:
     external: true
-EOF
-
-# src/package.json
-cat > "$PROJECTS_DIR/$PROJECT/src/package.json" << EOF
-{
-  "name": "$PROJECT",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
-  }
-}
-EOF
-
-# src/index.js
-cat > "$PROJECTS_DIR/$PROJECT/src/index.js" << EOF
-const http = require("http");
-const PORT = process.env.PORT || $PORT;
-
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ project: "$PROJECT", status: "ok" }));
-});
-
-server.listen(PORT, () => {
-  console.log(\`$PROJECT running on port \${PORT}\`);
-});
-EOF
+DCEOF
 
 echo ""
-echo "✅ Projet '$PROJECT' créé dans projects/$PROJECT/"
+echo "✅ Projet '$NAME' créé dans projects/$NAME/"
 echo ""
 echo "Pour le démarrer :"
-echo "  ./scripts/project.sh start $PROJECT"
-echo ""
-echo "Pour lancer Claude Code dessus :"
-echo "  ./scripts/claude-run.sh $PROJECT \"ton prompt ici\""
+echo "  cdev up $NAME"

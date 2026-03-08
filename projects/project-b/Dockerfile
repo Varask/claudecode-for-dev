@@ -11,15 +11,13 @@ RUN mkdir /var/run/sshd \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 RUN npm install -g @anthropic-ai/claude-code
-
 RUN claude --version || true
 
+RUN mkdir -p /app/src
 WORKDIR /app
-COPY src/ /app/src/
 
-WORKDIR /app/src
-RUN npm install 2>/dev/null || true
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 3001 22
-
-CMD ["/bin/bash", "-c", "/usr/sbin/sshd && node index.js"]
+ENTRYPOINT ["/entrypoint.sh"]

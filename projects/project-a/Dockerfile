@@ -11,18 +11,17 @@ RUN mkdir /var/run/sshd \
     && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
-# Installer Claude Code — accessible globalement (docker exec l'utilise en root)
+# Claude Code installé globalement dans le container
 RUN npm install -g @anthropic-ai/claude-code
-
-# Vérifier que claude est bien dans le PATH
 RUN claude --version || true
 
+# Répertoire de travail — sera rempli par git clone au démarrage
+RUN mkdir -p /app/src
 WORKDIR /app
-COPY src/ /app/src/
 
-WORKDIR /app/src
-RUN npm install 2>/dev/null || true
+# Entrypoint : clone le repo puis démarre l'app
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000 22
-
-CMD ["/bin/bash", "-c", "/usr/sbin/sshd && node index.js"]
+ENTRYPOINT ["/entrypoint.sh"]

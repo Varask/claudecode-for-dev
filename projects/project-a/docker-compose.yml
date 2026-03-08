@@ -3,11 +3,14 @@ services:
     build: .
     container_name: project-a
     environment:
-      - DATABASE_URL=postgresql://user:changeme@postgres:5432/mydb
+      - GIT_REPO=${PROJECT_A_REPO:-}
+      - GIT_BRANCH=${PROJECT_A_BRANCH:-main}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379
       - PORT=3000
     volumes:
-      - project-a-code:/app/src     # Code persiste dans un volume dédié
+      - project-a-code:/app/src      # code persisté entre les restarts
+      - ${SSH_KEY_PATH:-~/.ssh}:/root/.ssh:ro  # clé SSH pour repos privés
     ports:
       - "3000:3000"
     networks:
